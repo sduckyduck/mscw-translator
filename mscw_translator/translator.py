@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import requests
 
 
@@ -80,18 +81,72 @@ class TranslatorService:
         data = response.json()
         return data["translations"][0]["text"]
 
-    @staticmethod
-    def _fallback(text: str, glossary_note: str, error: str = "") -> str:
+    def _built_in_translate(self, text: str) -> str:
+        normalized = re.sub(r"\s+", " ", text.strip().lower())
+
+        phrase_map = {
+            "hi": "嗨。",
+            "hello": "你好。",
+            "hey": "嘿。",
+            "hi any luck?": "嗨，有进展吗？/ 有消息了吗？",
+            "any luck?": "有进展吗？/ 有消息了吗？",
+            "any luck": "有进展吗？/ 有消息了吗？",
+            "still there?": "还在吗？",
+            "u there?": "你还在吗？",
+            "you there?": "你还在吗？",
+            "brb": "马上回来。",
+            "afk": "暂时离开。",
+            "ty": "谢谢。",
+            "thx": "谢谢。",
+            "thanks": "谢谢。",
+            "np": "没问题。",
+            "nvm": "没事，别在意。",
+            "invite me": "请拉我进队。",
+            "inv me": "请拉我进队。",
+            "party full": "队伍满了。",
+            "cc plz": "请换频道/请让图。",
+            "how much?": "多少钱？",
+            "price?": "价格多少？",
+            "offer?": "你出价多少？",
+            "sold": "已经卖了。",
+        }
+
+        if normalized in phrase_map:
+            return phrase_map[normalized]
+
+        patterns = [
+            (r"^lf>\s*(.+)", "正在寻找：{x}"),
+            (r"^l>\s*(.+)", "正在寻找：{x}"),
+            (r"^r>\s*(.+)", "正在招募：{x}"),
+            (r"^s>\s*(.+)", "正在出售：{x}"),
+            (r"^b>\s*(.+)", "正在购买：{x}"),
+            (r"^t>\s*(.+)", "想交换：{x}"),
+            (r"(.+)\s+for\s+(.+)", "用/为了 {y}：{x}"),
+        ]
+        for pattern, template in patterns:
+            match = re.search(pattern, normalized)
+            if match:
+                if len(match.groups()) == 1:
+                    return template.format(x=match.group(1))
+                return template.format(x=match.group(1), y=match.group(2))
+
+        return "内置简易模式无法完整翻译这句话，但可以结合下方术语提示理解。"
+
+    def _fallback(self, text: str, glossary_note: str, error: str = "") -> str:
+        built_in = self._built_in_translate(text)
         lines = [
-            "本地解释模式：还没有连接到 Ollama 本地大语言模型。",
+            "【中文意思】",
+            built_in,
             "",
-            "解决方法：安装 Ollama，并运行：ollama run qwen2.5:3b",
+            "【说明】",
+            "当前没有连接 Ollama，也没有使用外部翻译 API；这是程序内置的简易规则翻译。",
+            "想要更自然的 AI 翻译，需要安装本地模型，例如 Ollama + qwen2.5:3b。",
             "",
-            "识别原文：",
+            "【识别原文】",
             text,
         ]
         if glossary_note:
-            lines.extend(["", "术语提示：", glossary_note])
+            lines.extend(["", "【术语提示】", glossary_note])
         if error:
-            lines.extend(["", "状态信息：", error])
+            lines.extend(["", "【状态信息】", error])
         return "\n".join(lines)
